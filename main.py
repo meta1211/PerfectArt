@@ -1,38 +1,31 @@
 #data processing modules
 import pandas as pd 
 import re
-import csv
-
 #text pre-procassing modules
-from spellchecker import SpellChecker
-from gensim.models.phrases import Phrases, Phraser
-from nltk.corpus import stopwords
-from nltk.stem import WordNetLemmatizer
 import nltk
-
+from autocorrect import spell
+from nltk.corpus import stopwords, words
+from nltk.corpus import wordnet as wn
+from nltk.stem import WordNetLemmatizer
+from nltk.corpus import sentiwordnet as swn
 #model modules
-from sklearn.feature_extraction.text import CountVectorizer
 from keras.preprocessing.text import Tokenizer
 from keras.preprocessing.sequence import pad_sequences
-from keras.models import Sequential
-from keras import optimizers    
-from keras.layers import Dense, Embedding, LSTM, SpatialDropout1D, GRU
-from sklearn.model_selection import train_test_split
-from keras.utils.np_utils import to_categorical
-from keras import initializers
 from keras.models import load_model
-
-#nltk.download('wordnet')
-#nltk.download('stopwords')
-lemmatizer = WordNetLemmatizer()
-stop_words = set(stopwords.words('english'))
-spell = SpellChecker()
 
 maxFeatures = 2000 #Change in carefuly. Can decrease quality of predictions
 maxVectorLen = 300 #Warning! Dont change it. Model learned with this vector size
 
-tokenizer = Tokenizer(num_words=maxFeatures,  split=' ')
+#nltk.download('wordnet')
+#nltk.download('stopwords')
+#nltk.download('words')
+#nltk.download('sentiwordnet')
 
+lemmatizer = WordNetLemmatizer()
+stop_words = set(stopwords.words('english'))
+tokenizer = Tokenizer(num_words=maxFeatures,  split=' ')
+with open('big_dict 0.5.txt', 'r') as file:
+    english_vocab = [word.replace("\n", '') for word in file.readlines() if len(word) > 0]
 
 patterns =[
     r'<[^>]+>', # HTML tags
@@ -51,8 +44,11 @@ def ClearFromPatterns(str, patterns):
     return result
 
 def Split(text):
-    splitPatter = r"[!?.,:\( \) \\/\"\'*;\[\=+&-]"
-    return re.split(splitPatter,text)
+    #splitPatter = r"[!@#$%^&*\(\)-+\[\]{}:;\'\"< >?/.,]"
+    #splitPatter = r"[!?.,:\( \) \\/\"\'*;\[\=+&-]"
+    regex = r'(\w*) '
+    list1=re.findall(regex,text)
+    return list1
 
 def DeletePunctuation(text):
     return ' '.join([word for word in Split(text) if len(word) > 0])
@@ -61,10 +57,21 @@ def DeleteStopWords(words, stopWords):
     return [word for word in words if word not in stopWords]
 
 def CorrectSpelling(words):
-    return [spell.correction(word) if len(word) > 3 else word for word in words]
+    text = [spell(word).lower() if len(word) > 3 else word for word in words]
+    return text
 
 def Lemmatize(words):
     return [lemmatizer.lemmatize(word) for word in words]
+
+def MorphyCorrection(words):
+    res = []
+    for word in words:
+        newWord = wn.morphy(word) #Returns None if it cant change word
+        if newWord:
+            res.append(newWord)
+        else:
+            res.append(word)
+    return res
 
 def GrammarPreProcessing(text):
     text = text.lower()
@@ -73,20 +80,41 @@ def GrammarPreProcessing(text):
     words = text.split(' ')
     words = DeleteStopWords(words, stop_words)
     words = CorrectSpelling(words)
-    words = Lemmatize(words)
+    words = MorphyCorrection(words)
     return ' '.join(words)
+
+def UppercaseCount(text):
+    count = 0
+    for letter in text:
+        if letter.isupper():
+            count += 1
+    return count
+
+def SentimentPunctuationCount(text):
+    return text.count('!')
 
 def PrepareSet(set, maxVectorLen):
     tokenizer.fit_on_texts(set)
     X = tokenizer.texts_to_sequences(set)
     X = pad_sequences(X, maxlen= maxVectorLen)
     return X
+
+def MakePreprocessData(texts):
+    data = pd.DataFrame()
+    data['text'] = texts
+    data['len'] = [len(text) for text in texts]
+    data['words_count'] = [len(text.split()) for text in texts]
+    data['uppercase_count'] = [UppercaseCount(text) for text in texts]
+    data['meanWords_count'] = [len([word for word in text if word not in stop_words]) for text in texts]
+    data['sentimentPunctuation_count'] = [SentimentPunctuationCount(word) for word in texts]
+    return data
 #TO DO (Daniel)
 def IsForeign(text):
     return False
-#TO DO (Joseph)
-def IsRealText(text):
-    return True
+
+def IsRealText(text, threshold = 0.1):
+    unusual = [word for word in text.split() if word not in english_vocab and len(word) > 0]
+    return float(len(unusual))/len(text) < threshold
 #TO DO (Maria)
 def IsMissEmotional(text):
     return False
@@ -99,19 +127,17 @@ def main():
     #Just write your data path set will be prepared automaticly.
     dataPath = 'C:\\Users\\SoulSold\\source\\repos\\PythonApplication4\\PythonApplication4\\data_train (1).csv'
     outputPath = 'DATA.csv'
-    print(Split('\tword\n'))
     data = pd.read_csv(dataPath, sep = '\t')
-    data['text'] = data['text'][0:10].apply(lambda x: GrammarPreProcessing(x))
-    set = ClearText(data['text']).values
-    print(data.head(10))
-    X = PrepareSet(set, maxVectorLen)
-    model = load_model('model.h5')
+    data['text'] = data['text'].apply(lambda x: GrammarPreProcessing(x))
+    set = MakePreprocessData(data['text'].values)
+    print(set['text'].values[0:10])
+    X = PrepareSet(set['text'].values, maxVectorLen)
+    model = load_model('model v.1.4.h5')
     pr = model.predict(X, steps = 1)
-
     #creating output file with our analysis
     output = pd.DataFrame()
     output['text'] = data['text']
-    output['applicity'] = ['1' if CheckApplicablity(text) else '0' for text in set]
+    output['applicity'] = ['1' if CheckApplicablity(text) else '0' for text in set['text'].values]
     output['sentiment'] = ['0' if sentiment[0] > sentiment[1] else '1' for sentiment in pr]
     print(output.head(10))
     output.to_csv(outputPath)
