@@ -21,7 +21,6 @@ maxVectorLen = 300 #Warning! Dont change it. Model learned with this vector size
 #nltk.download('words')
 #nltk.download('sentiwordnet')
 
-lemmatizer = WordNetLemmatizer()
 stop_words = set(stopwords.words('english'))
 tokenizer = Tokenizer(num_words=maxFeatures,  split=' ')
 with open('big_dict 0.5.txt', 'r') as file:
@@ -59,9 +58,6 @@ def DeleteStopWords(words, stopWords):
 def CorrectSpelling(words):
     text = [spell(word).lower() if len(word) > 3 else word for word in words]
     return text
-
-def Lemmatize(words):
-    return [lemmatizer.lemmatize(word) for word in words]
 
 def MorphyCorrection(words):
     res = []
