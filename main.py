@@ -3,6 +3,7 @@ import pandas as pd
 import re
 #text pre-procassing modules
 import nltk
+import os # no better solution for language identification is available atm
 from autocorrect import spell
 from nltk.corpus import stopwords, words
 from nltk.corpus import wordnet as wn
@@ -13,7 +14,7 @@ from keras.preprocessing.text import Tokenizer
 from keras.preprocessing.sequence import pad_sequences
 from keras.models import load_model
 
-maxFeatures = 2000 #Change in carefuly. Can decrease quality of predictions
+maxFeatures = 2000 #Change carefully. May decrease quality of predictions
 maxVectorLen = 300 #Warning! Dont change it. Model learned with this vector size
 
 #nltk.download('wordnet')
@@ -104,9 +105,26 @@ def MakePreprocessData(texts):
     data['meanWords_count'] = [len([word for word in text if word not in stop_words]) for text in texts]
     data['sentimentPunctuation_count'] = [SentimentPunctuationCount(word) for word in texts]
     return data
-#TO DO (Daniel)
 def IsForeign(text):
-    return False
+    # IMPORTANT! Before we fix this preposterous issue, you need to have langdetect.ftz file in your working directory
+    data_for_test = pd.DataFrame({'email':data['text'], 'if_english':'none'})
+    data_for_test.to_csv('/home/odduser/Desktop/z/hakaton/PerfectArt-master/Data/data_for_test.txt', header = False)
+    os.system("./fasttext " "predict " "langdetect.ftz " "data_for_test.txt " "> " "results.txt ")
+    test_results = pd.read_csv('results.txt', sep="\t", header=None)
+    test_results.columns = ['lang_label']
+    test_results['if_eng'] = 0
+    j=0
+    for lang in test_results.loc[ : , "lang_label"]:
+        if lang == '__label__eng':
+            test_results.loc[j, "if_eng"] = 1
+        j = j + 1
+    #print(test_results)
+    j=0
+    for lang in test_results.loc[ : , "if_eng"]:
+        if lang == 0:
+            data.loc[j, "applicability"] = 0
+        j = j + 1
+    return data
 
 def IsRealText(text, threshold = 0.1):
     unusual = [word for word in text.split() if word not in english_vocab and len(word) > 0]
