@@ -2,13 +2,10 @@
 import pandas as pd 
 import re
 #text pre-procassing modules
-import nltk
-import os # no better solution for language identification is available atm
+import os
 from autocorrect import spell
 from nltk.corpus import stopwords, words
 from nltk.corpus import wordnet as wn
-from nltk.stem import WordNetLemmatizer
-from nltk.corpus import sentiwordnet as swn
 #model modules
 from keras.preprocessing.text import Tokenizer
 from keras.preprocessing.sequence import pad_sequences
@@ -22,10 +19,14 @@ maxVectorLen = 300 #Warning! Dont change it. Model learned with this vector size
 #nltk.download('words')
 #nltk.download('sentiwordnet')
 
+projectFolder = os.path.dirname(__file__)
 stop_words = set(stopwords.words('english'))
 tokenizer = Tokenizer(num_words=maxFeatures,  split=' ')
-with open('big_dict 0.5.txt', 'r') as file:
+sentimentWordsPath = os.path.join(projectFolder, 'sentiWordNet.csv')
+dictPath = os.path.join(projectFolder, 'big_dict 0.5.txt')
+with open(dictPath, 'r') as file:
     english_vocab = [word.replace("\n", '') for word in file.readlines() if len(word) > 0]
+sentimentWords = pd.read_csv(sentimentWordsPath)
 
 patterns =[
     r'<[^>]+>', # HTML tags
@@ -44,8 +45,6 @@ def ClearFromPatterns(str, patterns):
     return result
 
 def Split(text):
-    #splitPatter = r"[!@#$%^&*\(\)-+\[\]{}:;\'\"< >?/.,]"
-    #splitPatter = r"[!?.,:\( \) \\/\"\'*;\[\=+&-]"
     regex = r'(\w*) '
     list1=re.findall(regex,text)
     return list1
@@ -105,7 +104,9 @@ def MakePreprocessData(texts):
     data['meanWords_count'] = [len([word for word in text if word not in stop_words]) for text in texts]
     data['sentimentPunctuation_count'] = [SentimentPunctuationCount(word) for word in texts]
     return data
-def IsForeign(text):
+
+#no better solution for language identification is available atm
+def IsEnglish(text):
     # IMPORTANT! Before we fix this preposterous issue, you need to have langdetect.ftz file in your working directory
     data_for_test = pd.DataFrame({'email':data['text'], 'if_english':'none'})
     data_for_test.to_csv('/home/odduser/Desktop/z/hakaton/PerfectArt-master/Data/data_for_test.txt', header = False)
@@ -118,40 +119,56 @@ def IsForeign(text):
         if lang == '__label__eng':
             test_results.loc[j, "if_eng"] = 1
         j = j + 1
-    #print(test_results)
-    j=0
-    for lang in test_results.loc[ : , "if_eng"]:
-        if lang == 0:
-            data.loc[j, "applicability"] = 0
-        j = j + 1
-    return data
+    return test_results['if_eng'].values
 
-def IsRealText(text, threshold = 0.1):
+def RealWordsRatio(text):
     unusual = [word for word in text.split() if word not in english_vocab and len(word) > 0]
-    return float(len(unusual))/len(text) < threshold
-#TO DO (Maria)
-def IsMissEmotional(text):
-    return False
+    return 1 - float(len(unusual))/len(text)
 
-#TO DO: add missemotional and foreign language check
-def CheckApplicablity(text):
-    return  not IsForeign(text) and IsRealText(text) and not IsMissEmotional(text)
+def EmotionalWordsRatio(text):
+    count = 0
+    posSum = 0
+    negSum = 0
+    for word in text.split():
+        if sentimentWords.loc(sentimentWords['word'].isin(word)):
+            count += 1
+            negSum = sentimentWords.loc(sentimentWords['word' == word])['NegScore']
+            posSum = sentimentWords.loc(sentimentWords['word' == word])['PosScore']
+    if count == 0:
+        return (0, 0)
+    else:
+        return (negSum/count, posSum/count)
+    
 
 def main():
     #Just write your data path set will be prepared automaticly.
-    dataPath = 'C:\\Users\\SoulSold\\source\\repos\\PythonApplication4\\PythonApplication4\\data_train (1).csv'
-    outputPath = 'DATA.csv'
-    data = pd.read_csv(dataPath, sep = '\t')
-    data['text'] = data['text'].apply(lambda x: GrammarPreProcessing(x))
+    dataPath = os.path.join(projectFolder, "Data\\TestData.csv")
+    outputPath = os.path.join(projectFolder, 'DATA.csv')
+    
+    data = pd.read_csv(dataPath)
     set = MakePreprocessData(data['text'].values)
-    print(set['text'].values[0:10])
+    is_english = []
+    real_words_ratio = []
+    emotWordsRatio = []
+    for text in set['text'].values:
+        if IsEnglish(text):
+            is_english.append('1')
+        else:
+            is_english.append('1')
+        text = GrammarPreProcessing(text)
+        real_words_ratio.append(RealWordsRatio(text))
+        emotWordsRatio.append(EmotionalWordsRatio(text))
+    set['is_english'] = is_english
+    set['real_words_ratio'] = real_words_ratio
+    set['emotWordsRatio'] = emotWordsRatio
+
     X = PrepareSet(set['text'].values, maxVectorLen)
     model = load_model('model v.1.4.h5')
     pr = model.predict(X, steps = 1)
     #creating output file with our analysis
     output = pd.DataFrame()
     output['text'] = data['text']
-    output['applicity'] = ['1' if CheckApplicablity(text) else '0' for text in set['text'].values]
+    output['applicity'] = ['1' if row['is_english'] == '1' and row['real_words_ratio'] > 0.9 and row['emotWordsRatio'][0] + row['emotWordsRatio'][1] > 0.05 else '0' for index, row in df.iterrows()]
     output['sentiment'] = ['0' if sentiment[0] > sentiment[1] else '1' for sentiment in pr]
     print(output.head(10))
     output.to_csv(outputPath)
