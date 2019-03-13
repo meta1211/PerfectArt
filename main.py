@@ -22,11 +22,12 @@ maxVectorLen = 300 #Warning! Dont change it. Model learned with this vector size
 projectFolder = os.path.dirname(__file__)
 stop_words = set(stopwords.words('english'))
 tokenizer = Tokenizer(num_words=maxFeatures,  split=' ')
-sentimentWordsPath = os.path.join(projectFolder, 'sentiWordNet.csv')
-dictPath = os.path.join(projectFolder, 'big_dict 0.5.txt')
+sentimentWordsPath = os.path.join(projectFolder, 'Data\\SentimentWordsData.csv')
+dictPath = os.path.join(projectFolder, 'Data\\big_dict 0.5.txt')
 with open(dictPath, 'r') as file:
     english_vocab = [word.replace("\n", '') for word in file.readlines() if len(word) > 0]
 sentimentWords = pd.read_csv(sentimentWordsPath)
+sentiDict = {row['word'] : (row['NegScore'], row['PosScore']) for index, row in sentimentWords.iterrows()}
 
 patterns =[
     r'<[^>]+>', # HTML tags
@@ -105,23 +106,9 @@ def MakePreprocessData(texts):
     data['sentimentPunctuation_count'] = [SentimentPunctuationCount(word) for word in texts]
     return data
 
-#no better solution for language identification is available atm
-def IsEnglish(text):
-    # IMPORTANT! Before we fix this preposterous issue, you need to have langdetect.ftz file in your working directory
-    data_for_test = pd.DataFrame({'email':data['text'], 'if_english':'none'})
-    data_for_test.to_csv('/home/odduser/Desktop/z/hakaton/PerfectArt-master/Data/data_for_test.txt', header = False)
-    os.system("./fasttext " "predict " "langdetect.ftz " "data_for_test.txt " "> " "results.txt ")
-    test_results = pd.read_csv('results.txt', sep="\t", header=None)
-    test_results.columns = ['lang_label']
-    test_results['if_eng'] = 0
-    j=0
-    for lang in test_results.loc[ : , "lang_label"]:
-        if lang == '__label__eng':
-            test_results.loc[j, "if_eng"] = 1
-        j = j + 1
-    return test_results['if_eng'].values
-
 def RealWordsRatio(text):
+    if len(text) == 0:
+        return 0
     unusual = [word for word in text.split() if word not in english_vocab and len(word) > 0]
     return 1 - float(len(unusual))/len(text)
 
@@ -130,10 +117,10 @@ def EmotionalWordsRatio(text):
     posSum = 0
     negSum = 0
     for word in text.split():
-        if sentimentWords.loc(sentimentWords['word'].isin(word)):
+        if word in sentiDict:
             count += 1
-            negSum = sentimentWords.loc(sentimentWords['word' == word])['NegScore']
-            posSum = sentimentWords.loc(sentimentWords['word' == word])['PosScore']
+            negSum = sentiDict[word][0]
+            posSum = sentiDict[word][1]
     if count == 0:
         return (0, 0)
     else:
@@ -142,33 +129,26 @@ def EmotionalWordsRatio(text):
 
 def main():
     #Just write your data path set will be prepared automaticly.
-    dataPath = os.path.join(projectFolder, "Data\\TestData.csv")
+    dataPath = os.path.join(projectFolder, "Data\TestData.csv")
     outputPath = os.path.join(projectFolder, 'DATA.csv')
-    
     data = pd.read_csv(dataPath)
     set = MakePreprocessData(data['text'].values)
-    is_english = []
     real_words_ratio = []
     emotWordsRatio = []
     for text in set['text'].values:
-        if IsEnglish(text):
-            is_english.append('1')
-        else:
-            is_english.append('1')
         text = GrammarPreProcessing(text)
         real_words_ratio.append(RealWordsRatio(text))
         emotWordsRatio.append(EmotionalWordsRatio(text))
-    set['is_english'] = is_english
     set['real_words_ratio'] = real_words_ratio
     set['emotWordsRatio'] = emotWordsRatio
-
     X = PrepareSet(set['text'].values, maxVectorLen)
     model = load_model('model v.1.4.h5')
     pr = model.predict(X, steps = 1)
+
     #creating output file with our analysis
     output = pd.DataFrame()
     output['text'] = data['text']
-    output['applicity'] = ['1' if row['is_english'] == '1' and row['real_words_ratio'] > 0.9 and row['emotWordsRatio'][0] + row['emotWordsRatio'][1] > 0.05 else '0' for index, row in df.iterrows()]
+    output['applicity'] = ['1' if row['real_words_ratio'] > 0.9 and row['emotWordsRatio'][0] + row['emotWordsRatio'][1] > 0.05 else '0' for index, row in set.iterrows()]
     output['sentiment'] = ['0' if sentiment[0] > sentiment[1] else '1' for sentiment in pr]
     print(output.head(10))
     output.to_csv(outputPath)
