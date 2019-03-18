@@ -34,7 +34,7 @@ patterns =[
     r'(?:@[\w_]+)', # @-mentions
     r"(?:\#+[\w_]+[\w\'_\-]*[\w_]+)", # hash-tags
     r'http[s]?://(?:[\w+]|[$-_@.&amp;+]|[!*\(\),]|(?:%[0-9a-f][0-9a-f]))+', # URLs
-    r'\d+', # numbers
+    r'\d+', # numbers (Not sure should we delete it on this stage)
     r"['-]\w+", # words with - and '
     r"[:;=%x][o0\-^_]?[ds\\\[\]\(\)/i|><]+", # smiles
          ]
@@ -90,11 +90,18 @@ def UppercaseCount(text):
 def SentimentPunctuationCount(text):
     return text.count('!')
 
+def PunctuationCount(text):
+    return len(re.findall(r'[!?:;.,"]', text)) - 2 * text.count('...') #we count '...' as 3 dots in findall
+
 def PrepareSet(set, maxVectorLen):
     tokenizer.fit_on_texts(set)
     X = tokenizer.texts_to_sequences(set)
     X = pad_sequences(X, maxlen= maxVectorLen)
     return X
+
+
+def SmilesCount(text):
+    return len(re.findall(r"[:;=%x][o0\-^_]?[ds\\\[\]\(\)/i|><]+", text))
 
 def MakePreprocessData(texts):
     data = pd.DataFrame()
@@ -102,8 +109,11 @@ def MakePreprocessData(texts):
     data['len'] = [len(text) for text in texts]
     data['words_count'] = [len(text.split()) for text in texts]
     data['uppercase_count'] = [UppercaseCount(text) for text in texts]
-    data['meanWords_count'] = [len([word for word in text if word not in stop_words]) for text in texts]
-    data['sentimentPunctuation_count'] = [SentimentPunctuationCount(word) for word in texts]
+    data['meanWords_count'] = [len([word for word in Split(text) if word not in stop_words]) for text in texts]
+    data['sentimentPunctuation_count'] = [SentimentPunctuationCount(text) for text in texts]
+    data['totalPunctuation_count'] = [PunctuationCount(text) for text in texts]
+    data['smiles_count'] = [SmilesCount(text) for text in texts]
+    
     return data
 
 def RealWordsRatio(text):
@@ -133,16 +143,11 @@ def main():
     outputPath = os.path.join(projectFolder, 'DATA.csv')
     data = pd.read_csv(dataPath)
     set = MakePreprocessData(data['text'].values)
-    real_words_ratio = []
-    emotWordsRatio = []
-    for text in set['text'].values:
-        text = GrammarPreProcessing(text)
-        real_words_ratio.append(RealWordsRatio(text))
-        emotWordsRatio.append(EmotionalWordsRatio(text))
-    set['real_words_ratio'] = real_words_ratio
-    set['emotWordsRatio'] = emotWordsRatio
-    X = PrepareSet(set['text'].values, maxVectorLen)
-    model = load_model('model v.1.4.h5')
+    set['processed_text'] = [GrammarPreProcessing(text) for text in set['text'].values]
+    set['real_words_ratio'] = [RealWordsRatio(text) for text in set['text'].values]
+    set['emotWordsRatio'] = [AvarageEmotionRatio(text) for text in set['text'].values]
+    X = PrepareSet(set['processed_text'].values, maxVectorLen)
+    model = load_model('model v.1.4.h5') 
     pr = model.predict(X, steps = 1)
 
     #creating output file with our analysis
