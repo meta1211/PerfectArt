@@ -35,7 +35,7 @@ patterns =[
     r"(?:\#+[\w_]+[\w\'_\-]*[\w_]+)", # hash-tags
     r'http[s]?://(?:[\w+]|[$-_@.&amp;+]|[!*\(\),]|(?:%[0-9a-f][0-9a-f]))+', # URLs
     r'\d+', # numbers (Not sure should we delete it on this stage)
-    r"['-]\w+", # words with - and '
+    r"[']\w+", # deleting all after ' (ex. cat's => cat)
     r"[:;=%x][o0\-^_]?[ds\\\[\]\(\)/i|><]+", # smiles
          ]
 
